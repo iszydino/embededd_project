@@ -1,11 +1,14 @@
 #include "stm32f1xx.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 #include "hal_tcs3200.h"
+#include "app_ipc.h"
+#include "task_color.h"
 
-volatile uint32_t g_r, g_g, g_b, g_status, g_count;
+volatile uint32_t g_r, g_g, g_b, g_status, g_count, g_class;
+volatile uint32_t g_nr, g_ng, g_nb;
 
-/* HSE 8MHz x9 = 72MHz, APB1 /2, flash 2 wait states */
 static void clock_72mhz(void)
 {
     uint32_t t = 0;
@@ -21,15 +24,21 @@ static void clock_72mhz(void)
     SystemCoreClock = 72000000UL;
 }
 
-static void prvTest(void *p)
+/* Task gia lap task_display: nhan ket qua mau */
+static void prvConsumer(void *p)
 {
     (void)p;
+    ColorData_t d;
     for (;;) {
-        tcs_rgb_t f;
-        g_status = (uint32_t)hal_tcs3200_read_rgb(50, &f);
-        if (g_status == 0U) { g_r = f.r; g_g = f.g; g_b = f.b; }
-        g_count++;
-        vTaskDelay(pdMS_TO_TICKS(100));
+        if (xQueueReceive(xColorQueue, &d, pdMS_TO_TICKS(1000)) == pdPASS) {
+            g_r = d.r; g_g = d.g; g_b = d.b;
+            g_nr = d.nr; g_ng = d.ng; g_nb = d.nb;
+            g_class = (uint32_t)d.id;
+            g_status = 0U;
+            g_count++;
+        } else {
+            g_status = 1U;
+        }
     }
 }
 
@@ -38,9 +47,11 @@ void vApplicationStackOverflowHook(TaskHandle_t t, char *n) { (void)t; (void)n; 
 int main(void)
 {
     clock_72mhz();
-    NVIC_SetPriorityGrouping(3U);   /* group 4: 4 bit preempt, bat buoc voi FreeRTOS */
+    NVIC_SetPriorityGrouping(3U);
     (void)hal_tcs3200_init();
-    xTaskCreate(prvTest, "TCS_TEST", 256, NULL, tskIDLE_PRIORITY + 1, NULL);
+    app_ipc_init();
+    (void)task_color_create();
+    xTaskCreate(prvConsumer, "CONSUMER", 128, NULL, tskIDLE_PRIORITY + 1, NULL);
     vTaskStartScheduler();
     for (;;) {}
 }

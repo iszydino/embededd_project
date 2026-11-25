@@ -39,3 +39,6 @@ flash: all
 clean:
 	rm -rf build
 .PHONY: all flash clean
+
+ENV ?= BENCH
+CFLAGS += -DENV_$(ENV)
