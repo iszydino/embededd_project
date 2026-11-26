@@ -15,6 +15,10 @@
 
 static TaskHandle_t xColorTaskHandle = NULL;
 
+/* Bien debug doc bang OpenOCD */
+volatile uint32_t g_tc_r, g_tc_g, g_tc_b, g_tc_nr, g_tc_ng, g_tc_nb;
+volatile uint32_t g_tc_id, g_tc_err, g_tc_cnt;
+
 /* Tru nen, chuan hoa ve 0..255 */
 static uint32_t prvNorm(uint32_t f, uint32_t dark, uint32_t white)
 {
@@ -52,7 +56,9 @@ static ColorId_t prvMajority(const ColorId_t s[COLOR_SAMPLES])
 static BaseType_t prvSample(ColorId_t *id, ColorData_t *d)
 {
     tcs_rgb_t f;
-    if (hal_tcs3200_read_rgb(COLOR_WINDOW_MS, &f) != HAL_TCS_OK) { return pdFALSE; }
+    hal_tcs_status_t st = hal_tcs3200_read_rgb(COLOR_WINDOW_MS, &f);
+    g_tc_err = (uint32_t)st;
+    if (st != HAL_TCS_OK) { return pdFALSE; }
 
     d->r = f.r; d->g = f.g; d->b = f.b;
     uint32_t nr = prvNorm(f.r, CAL_DARK_R, CAL_WHITE_R);
@@ -60,6 +66,9 @@ static BaseType_t prvSample(ColorId_t *id, ColorData_t *d)
     uint32_t nb = prvNorm(f.b, CAL_DARK_B, CAL_WHITE_B);
     d->nr = (uint8_t)nr; d->ng = (uint8_t)ng; d->nb = (uint8_t)nb;
     *id = prvClassify(nr, ng, nb);
+    g_tc_r = f.r; g_tc_g = f.g; g_tc_b = f.b;
+    g_tc_nr = nr; g_tc_ng = ng; g_tc_nb = nb;
+    g_tc_id = (uint32_t)*id; g_tc_cnt++;
     return pdTRUE;
 }
 

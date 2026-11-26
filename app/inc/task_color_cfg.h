@@ -4,12 +4,12 @@
 /* Chon moi truong: make ENV=BENCH | BOX | CONVEYOR */
 #if defined(ENV_BENCH)
   #define ENV_NAME      "BENCH"
-  #define CAL_DARK_R    1060U
-  #define CAL_DARK_G    1040U
-  #define CAL_DARK_B    1300U
-  #define CAL_WHITE_R   6740U
-  #define CAL_WHITE_G   7020U
-  #define CAL_WHITE_B   8920U
+  #define CAL_DARK_R    1700U
+  #define CAL_DARK_G    1350U
+  #define CAL_DARK_B    1420U
+  #define CAL_WHITE_R   6500U
+  #define CAL_WHITE_G   6900U
+  #define CAL_WHITE_B   8800U
 
 #elif defined(ENV_BOX)
   #define ENV_NAME      "BOX"

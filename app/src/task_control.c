@@ -24,6 +24,8 @@
 #define COLOR_TIMEOUT_MS      3000U
 #define WEIGH_WAIT_MS         9000U   /* lon hon thoi gian toi da cua task_weigh */
 #define SORT_TIMEOUT_MS       6000U
+#define DONE_HOLD_MS          1500U   /* HOAN THANH hien bay nhieu roi tu ve cho */
+#define REARM_TIMEOUT_MS      10000U  /* cung mau van nam do: cho phep phan loai lai sau bay nhieu */
 
 /* Bien debug doc bang OpenOCD */
 volatile uint32_t g_ctl_state, g_ctl_slot, g_ctl_color;
@@ -80,10 +82,14 @@ static void prvControlTask(void *pvParameters)
     (void)pvParameters;
 
     ColorData_t cd;
-    ColorId_t   last_id = COLOR_NONE;
-    uint32_t    pcnt    = 0U;
-    SysState_t  st      = STATE_IDLE;
-    TickType_t  t_probe = 0;
+    ColorId_t   last_id   = COLOR_NONE;
+    ColorId_t   sorted_id = COLOR_NONE;
+    uint32_t    pcnt      = 0U;
+    SysState_t  st        = STATE_IDLE;
+    bool        armed     = true;
+    TickType_t  t_probe   = 0;
+    TickType_t  t_done    = 0;
+    TickType_t  t_disarm  = 0;
 
     prvSetState(STATE_IDLE, 0, SLOT_REJECT);
 
@@ -91,44 +97,56 @@ static void prvControlTask(void *pvParameters)
         prvDebug();
         vTaskDelay(pdMS_TO_TICKS(100));
         TickType_t now = xTaskGetTickCount();
+
+        /* HOAN THANH: chi hien DONE_HOLD_MS roi tu ve cho, khong do mau luc nay */
+        if (st == STATE_DONE) {
+            if ((now - t_done) >= pdMS_TO_TICKS(DONE_HOLD_MS)) {
+                st = STATE_IDLE;
+                armed = false;                 /* vat cu co the con nam do */
+                t_disarm = now;
+                pcnt = 0U; last_id = COLOR_NONE;
+                t_probe = now;
+                prvSetState(STATE_IDLE, 0, SLOT_REJECT);
+            }
+            continue;
+        }
+
         if ((now - t_probe) < pdMS_TO_TICKS(PROBE_PERIOD_MS)) { continue; }
         t_probe = now;
 
         cd = prvMeasureColor();
 
-        if (st == STATE_IDLE) {
-            if (cd.id == COLOR_NONE) { pcnt = 0U; last_id = COLOR_NONE; continue; }
-            if (cd.id == last_id) { pcnt++; } else { pcnt = 1U; last_id = cd.id; }
-            if (pcnt < PROBE_CONFIRM) { continue; }
-
-            /* --- 1. Mau da xac nhan --- */
-            pcnt = 0U; last_id = COLOR_NONE;
-            int32_t w10 = 0;
-            prvSetState(STATE_COLOR, 0, Sort_Decide(cd.id, 0.0f));
-
-            /* --- 2. Can: task_weigh tu hien man hinh rieng (mau + khoi luong) --- */
-#if APP_USE_WEIGHT
-            if (!task_weigh_measure(cd.id, &w10, pdMS_TO_TICKS(WEIGH_WAIT_MS))) {
-                w10 = 0;
+        /* Chua "len dan" lai: nhan ngay neu mau khac mau vua phan loai,
+         * hoac da thay khong co vat, hoac het REARM_TIMEOUT_MS */
+        if (!armed) {
+            TickType_t t = xTaskGetTickCount();
+            if ((cd.id == COLOR_NONE) || (cd.id != sorted_id) ||
+                ((t - t_disarm) >= pdMS_TO_TICKS(REARM_TIMEOUT_MS))) {
+                armed = true;
             }
-#endif
-            /* --- 3. Servo --- */
-            prvSort(&cd, w10);
-            st = STATE_DONE;
-            pcnt = 0U;
-            t_probe = xTaskGetTickCount();
-        } else {
-            /* --- 4. Cho lay vat ra: mau ve "khong co vat" --- */
-            if (cd.id == COLOR_NONE) {
-                if (++pcnt >= PROBE_CONFIRM) {
-                    st = STATE_IDLE;
-                    pcnt = 0U; last_id = COLOR_NONE;
-                    prvSetState(STATE_IDLE, 0, SLOT_REJECT);
-                }
-            } else {
-                pcnt = 0U;
-            }
+            if (!armed) { continue; }
         }
+
+        if (cd.id == COLOR_NONE) { pcnt = 0U; last_id = COLOR_NONE; continue; }
+        if (cd.id == last_id) { pcnt++; } else { pcnt = 1U; last_id = cd.id; }
+        if (pcnt < PROBE_CONFIRM) { continue; }
+
+        /* --- 1. Mau da xac nhan --- */
+        pcnt = 0U; last_id = COLOR_NONE;
+        int32_t w10 = 0;
+        prvSetState(STATE_COLOR, 0, Sort_Decide(cd.id, 0.0f));
+
+        /* --- 2. Can: task_weigh tu hien man hinh rieng (mau + khoi luong) --- */
+#if APP_USE_WEIGHT
+        if (!task_weigh_measure(cd.id, &w10, pdMS_TO_TICKS(WEIGH_WAIT_MS))) {
+            w10 = 0;
+        }
+#endif
+        /* --- 3. Servo --- */
+        prvSort(&cd, w10);
+        sorted_id = cd.id;
+        st = STATE_DONE;
+        t_done = xTaskGetTickCount();
     }
 }
 

@@ -8,7 +8,7 @@
 #define TASK_WEIGHT_PRIO       (tskIDLE_PRIORITY + 2)
 #define TASK_WEIGHT_STACK      256
 
-#define HX711_SCALE            -42.5f   /* raw counts per gram; MUST calibrate */
+#define HX711_SCALE            271.0f   /* raw counts per gram; MUST calibrate */
 #define WEIGHT_PERIOD_MS       100
 #define WEIGHT_TARE_N          20
 
