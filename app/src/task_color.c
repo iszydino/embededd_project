@@ -42,13 +42,11 @@ static ColorId_t prvClassify(uint32_t r, uint32_t g, uint32_t b)
     // Khong co vat
     if (mx < COLOR_MIN_LEVEL) { return COLOR_NONE; }
 
-    // Nhan dien trang
+    
     if ((mn * 10U) >= (mx * COLOR_WHITE_RATIO)) { return COLOR_WHITE; }
 
-    // Nhan dien do
     if ((r * 10U >= g * COLOR_DOMINANCE_X10) && (r * 10U >= b * COLOR_DOMINANCE_X10)) { return COLOR_RED; }
 
-    // Nhan dien xanh la
     if ((g * 10U >= r * COLOR_DOMINANCE_X10) && (g * 10U >= b * COLOR_DOMINANCE_X10)) { return COLOR_GREEN; }
 
     // Nhan dien xanh duong
@@ -73,7 +71,7 @@ static BaseType_t prvSample(ColorId_t *id, ColorData_t *d)
 {
     tcs_rgb_t f;
 
-    // Doc du lieu RGB
+    // Doc 
     if (hal_tcs3200_read_rgb(COLOR_WINDOW_MS, &f) != HAL_TCS_OK) { return pdFALSE; }
 
     // Luu RGB tho
@@ -93,7 +91,7 @@ static BaseType_t prvSample(ColorId_t *id, ColorData_t *d)
 }
 
 
-// Task nhan dien mau
+// Task nhan dien 
 static void prvColorTask(void *pvParameters)
 {
     (void)pvParameters;
