@@ -32,6 +32,8 @@ typedef struct {
     SysState_t state;
     float      weight_g;
     uint8_t    slot;
+    ColorId_t  color;      /* chi dung o man hinh can */
+    uint8_t    final;      /* 1 = khoi luong da chot */
 } DisplayMsg_t;
 
 typedef struct {
@@ -56,6 +58,7 @@ extern SemaphoreHandle_t   xCfgMutex;
 void       App_SharedInit(void);
 uint8_t    Sort_Decide(ColorId_t color, float weight_g);
 void       Display_Post(SysState_t st, float weight_g, uint8_t slot);
+void       Display_PostWeigh(ColorId_t color, float weight_g, uint8_t final);
 void       ServoOledTask(void *arg);
 BaseType_t task_servo_oled_create(void);
 

@@ -14,6 +14,7 @@
 #endif
 #if APP_USE_WEIGHT
 #include "task_weight.h"
+#include "task_weigh.h"
 #endif
 
 volatile const char *g_ovf_name;
@@ -58,6 +59,7 @@ int main(void)
     if (task_control_create() != pdPASS)     { for (;;) {} }
 #if APP_USE_WEIGHT
     if (task_weight_create() != pdPASS)      { for (;;) {} }
+    if (task_weigh_create() != pdPASS)       { for (;;) {} }
 #endif
 
     vTaskStartScheduler();

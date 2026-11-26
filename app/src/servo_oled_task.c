@@ -43,7 +43,13 @@ void App_SharedInit(void)
 
 void Display_Post(SysState_t st, float weight_g, uint8_t slot)
 {
-    DisplayMsg_t m = { st, weight_g, slot };
+    DisplayMsg_t m = { st, weight_g, slot, COLOR_NONE, 0U };
+    if (xDisplayQueue) xQueueOverwrite(xDisplayQueue, &m);
+}
+
+void Display_PostWeigh(ColorId_t color, float weight_g, uint8_t final)
+{
+    DisplayMsg_t m = { STATE_WEIGHING, weight_g, SLOT_REJECT, color, final };
     if (xDisplayQueue) xQueueOverwrite(xDisplayQueue, &m);
 }
 
@@ -163,6 +169,36 @@ static uint8_t NextFreePreset(uint8_t slot)     /* mau ke tiep chua bi khay khac
     return g_slot[slot].preset;
 }
 
+static const char *ColorName(ColorId_t id)
+{
+    for (uint8_t i = 0; i < PRESET_COUNT; i++) {
+        if (g_presets[i].id == id) { return g_presets[i].name; }
+    }
+    return "KHAC";
+}
+
+/* Man hinh rieng cua buoc can: chi co mau va khoi luong */
+static void DrawWeigh(const DisplayMsg_t *m)
+{
+    char buf[40];
+    ssd1306_Fill(Black);
+
+    ssd1306_SetCursor(0, 0);
+    ssd1306_WriteString((char *)(m->final ? "KET QUA CAN" : "DANG CAN..."), Font_7x10, White);
+
+    snprintf(buf, sizeof(buf), "Mau: %s", ColorName(m->color));
+    ssd1306_SetCursor(0, 18);
+    ssd1306_WriteString(buf, Font_7x10, White);
+
+    int32_t w10 = (int32_t)(m->weight_g * 10.0f + (m->weight_g >= 0 ? 0.5f : -0.5f));
+    int32_t a   = (w10 < 0) ? -w10 : w10;
+    snprintf(buf, sizeof(buf), "%s%d.%d g", (w10 < 0) ? "-" : "",
+             (int)(a / 10), (int)(a % 10));
+    ssd1306_SetCursor(0, 38);
+    ssd1306_WriteString(buf, Font_11x18, White);
+    ssd1306_UpdateScreen();
+}
+
 static void DrawRun(const DisplayMsg_t *m)
 {
     char buf[40];
@@ -243,7 +279,7 @@ void ServoOledTask(void *arg)
     Btn_t bUp   = { BTN_UP_GPIO_Port,   BTN_UP_Pin,   0, 0 };
     Btn_t bEn   = { BTN_EN_GPIO_Port,   BTN_EN_Pin,   0, 0 };
 
-    DisplayMsg_t msg = { STATE_IDLE, 0.0f, SLOT_REJECT };
+    DisplayMsg_t msg = { STATE_IDLE, 0.0f, SLOT_REJECT, COLOR_NONE, 0U };
     SortCmd_t    cmd = { SLOT_REJECT, 0.0f };
     ServoPhase_t phase = SV_IDLE;
     uint32_t     holdStart = 0;
@@ -330,6 +366,7 @@ void ServoOledTask(void *arg)
         /* --- (d) Ve OLED chi khi co thay doi (tranh lam giat servo) --- */
         if (dirty) {
             if (inSettings) DrawSettings(sel);
+            else if (msg.state == STATE_WEIGHING) DrawWeigh(&msg);
             else            DrawRun(&msg);
             dirty = 0;
         }
