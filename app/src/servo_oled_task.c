@@ -1,45 +1,31 @@
 /*
- * SERVO + OLED TASK (1 task duy nhat) - STM32F103C8T6 + FreeRTOS
- *
- * Servo : TIM2 CH1 (PA0) PWM, PSC = 71, ARR = 19999 (1 tick = 1 us, 50 Hz)
- * OLED  : SSD1306 128x64, I2C1 (PB6 SCL, PB7 SDA), thu vien afiskon/stm32-ssd1306
- * Nut   : GPIO Input Pull-up (nhan = 0), User Label trong CubeMX:
- *           BTN_NEXT (PB12): vao cai dat / chuyen K1->K2->K3->thoat
- *           BTN_UP   (PB13): doi mau cua khay dang chon
- *           BTN_EN   (PB14): bat/tat khay dang chon
- * Yeu cau: configTICK_RATE_HZ = 1000 (1 tick = 1 ms), stack task >= 384 words
- *
- * Tao task:
- *   App_SharedInit();
- *   xTaskCreate(ServoOledTask, "ServoOled", 384, NULL, 2, NULL);
+ * SERVO + OLED TASK (1 task) - STM32F103C8T6 + FreeRTOS
+ * Servo : TIM4 CH3 (PB8), PSC = 71, ARR = 19999 (1 tick = 1 us, 50 Hz), khoi tao trong bsp_hal.c
+ * OLED  : SSD1306 128x64, I2C1 (PB6 SCL, PB7 SDA)
+ * Nut   : PA2 NEXT, PA3 UP, PA4 EN (pull-up, nhan = 0)
+ * Mau   : nhan ColorId_t tu task_color, khong con dung HSV
+ * Yeu cau: configTICK_RATE_HZ = 1000
  */
-#include "app_config.h"
-#include "main.h"
-#include "tim.h"
+#include "app_sort.h"
+#include "app_ipc.h"
+#include "bsp_pins.h"
+#include "bsp_hal.h"
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
 #include <stdio.h>
 
-/* ====================================================================
- *  1. DOI TUONG DUNG CHUNG + NHAN DIEN MAU (HSV)
- * ==================================================================== */
 const ColorPreset_t g_presets[PRESET_COUNT] = {
-    /* name      Hmin Hmax  Smin Smax  Vmin Vmax   (H: 0..360, S,V: %) */
-    { "RED",     345,  15,   40, 100,   20, 100 },
-    { "ORANGE",   15,  40,   40, 100,   30, 100 },
-    { "YELLOW",   40,  75,   40, 100,   30, 100 },
-    { "GREEN",    75, 165,   30, 100,   15, 100 },
-    { "BLUE",    190, 260,   30, 100,   15, 100 },
-    { "PURPLE",  260, 345,   25, 100,   15, 100 },
-    { "WHITE",     0, 360,    0,  20,   60, 100 },
-    { "BLACK",     0, 360,    0, 100,    0,  20 },
+    { "RED",   COLOR_RED   },
+    { "GREEN", COLOR_GREEN },
+    { "BLUE",  COLOR_BLUE  },
+    { "WHITE", COLOR_WHITE },
 };
 
 /* Mac dinh: K1 = RED, K2 = GREEN, K3 = BLUE */
 ColorSlot_t g_slot[MAX_COLORS] = {
     { 1, 0, 0.0f, 0.0f },
-    { 1, 3, 0.0f, 0.0f },
-    { 1, 4, 0.0f, 0.0f },
+    { 1, 1, 0.0f, 0.0f },
+    { 1, 2, 0.0f, 0.0f },
 };
 
 volatile uint16_t g_sortCount[MAX_COLORS + 1] = { 0 };
@@ -61,51 +47,16 @@ void Display_Post(SysState_t st, float weight_g, uint8_t slot)
     if (xDisplayQueue) xQueueOverwrite(xDisplayQueue, &m);
 }
 
-/* RGB (0..255) -> HSV (H 0..359, S,V 0..100) */
-static void RGBtoHSV(uint8_t r, uint8_t g, uint8_t b,
-                     uint16_t *h, uint8_t *s, uint8_t *v)
+/* Task dieu khien goi ham nay de biet san pham vao khay nao */
+uint8_t Sort_Decide(ColorId_t color, float weight_g)
 {
-    int mx = r, mn = r;
-    if (g > mx) mx = g;
-    if (b > mx) mx = b;
-    if (g < mn) mn = g;
-    if (b < mn) mn = b;
-    int d = mx - mn;
-
-    *v = (uint8_t)(mx * 100 / 255);
-    *s = (mx == 0) ? 0 : (uint8_t)(d * 100 / mx);
-
-    int hh;
-    if (d == 0)       hh = 0;
-    else if (mx == r) hh = 60 * ((int)g - (int)b) / d;
-    else if (mx == g) hh = 120 + 60 * ((int)b - (int)r) / d;
-    else              hh = 240 + 60 * ((int)r - (int)g) / d;
-    if (hh < 0) hh += 360;
-    *h = (uint16_t)hh;
-}
-
-static uint8_t PresetMatch(const ColorPreset_t *p,
-                           uint16_t h, uint8_t s, uint8_t v)
-{
-    uint8_t hOk = (p->h_min <= p->h_max)
-                ? (h >= p->h_min && h <= p->h_max)
-                : (h >= p->h_min || h <= p->h_max);
-    return hOk && s >= p->s_min && s <= p->s_max &&
-                  v >= p->v_min && v <= p->v_max;
-}
-
-/* Sensor task goi ham nay de biet san pham di vao khay nao */
-uint8_t Sort_Decide(uint8_t r, uint8_t g, uint8_t b, float weight_g)
-{
-    uint16_t h; uint8_t s, v;
     uint8_t result = SLOT_REJECT;
-
-    RGBtoHSV(r, g, b, &h, &s, &v);
+    if (color < COLOR_RED || color > COLOR_WHITE) { return result; }
 
     xSemaphoreTake(xCfgMutex, portMAX_DELAY);
     for (uint8_t i = 0; i < MAX_COLORS; i++) {
         if (!g_slot[i].enabled) continue;
-        if (!PresetMatch(&g_presets[g_slot[i].preset], h, s, v)) continue;
+        if (g_presets[g_slot[i].preset].id != color) continue;
         if (g_slot[i].w_max > 0.0f &&
             (weight_g < g_slot[i].w_min || weight_g > g_slot[i].w_max)) continue;
         result = i;
@@ -118,8 +69,8 @@ uint8_t Sort_Decide(uint8_t r, uint8_t g, uint8_t b, float weight_g)
 /* ====================================================================
  *  2. SERVO (may trang thai, khong chan)
  * ==================================================================== */
-#define SERVO_TIM        htim2
-#define SERVO_CH         TIM_CHANNEL_1
+#define SERVO_TIM        htim4
+#define SERVO_CH         TIM_CHANNEL_3
 #define SERVO_MIN_US     500
 #define SERVO_MAX_US     2500
 
@@ -214,7 +165,7 @@ static uint8_t NextFreePreset(uint8_t slot)     /* mau ke tiep chua bi khay khac
 
 static void DrawRun(const DisplayMsg_t *m)
 {
-    char buf[24];
+    char buf[40];
     ssd1306_Fill(Black);
 
     ssd1306_SetCursor(0, 0);
@@ -229,7 +180,7 @@ static void DrawRun(const DisplayMsg_t *m)
 
     const char *cname = "---";
     char kbuf[8] = "";
-    if (m->state != STATE_IDLE && m->state != STATE_WEIGHING) {
+    if (m->state != STATE_IDLE) {
         if (m->slot < MAX_COLORS) {
             xSemaphoreTake(xCfgMutex, portMAX_DELAY);
             cname = g_presets[g_slot[m->slot].preset].name;
@@ -257,7 +208,7 @@ static void DrawRun(const DisplayMsg_t *m)
 
 static void DrawSettings(uint8_t sel)
 {
-    char buf[24];
+    char buf[40];
     ssd1306_Fill(Black);
 
     ssd1306_SetCursor(0, 0);
@@ -342,6 +293,7 @@ void ServoOledTask(void *arg)
         case SV_MOVE_BACK:
             if (Servo_Step(now)) {
                 g_sortCount[(cmd.slot < MAX_COLORS) ? cmd.slot : MAX_COLORS]++;
+                xEventGroupSetBits(xEvt, EVT_SORT_DONE);
                 msg.state = STATE_DONE;
                 dirty = 1;
                 phase = SV_IDLE;
@@ -384,4 +336,11 @@ void ServoOledTask(void *arg)
 
         vTaskDelay(pdMS_TO_TICKS(LOOP_MS));
     }
+}
+
+
+BaseType_t task_servo_oled_create(void)
+{
+    return xTaskCreate(ServoOledTask, "SERVO_OLED", TASK_SERVO_OLED_STACK,
+                       NULL, TASK_SERVO_OLED_PRIO, NULL);
 }

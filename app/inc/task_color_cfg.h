@@ -43,7 +43,7 @@
 #define COLOR_WHITE_RATIO   7U     /* min/max >= 0.7 thi la trang (x10) */
 
 /* 0 = do dinh ky, 1 = cho task_color_trigger() */
-#define COLOR_TRIGGER_MODE  0
+#define COLOR_TRIGGER_MODE  1
 #define COLOR_PERIOD_MS     500U   /* chu ky o che do 0 */
 #define COLOR_SETTLE_MS     100U   /* cho vat on dinh sau trigger (che do 1) */
 
